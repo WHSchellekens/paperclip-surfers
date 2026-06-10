@@ -281,14 +281,35 @@ describe("prioritizeProjectWorkspaceCandidatesForRun", () => {
 });
 
 describe("parseSessionCompactionPolicy", () => {
-  it("disables Paperclip-managed rotation by default for codex and claude local", () => {
+  it("disables Paperclip-managed rotation by default for codex local", () => {
     expect(parseSessionCompactionPolicy(buildAgent("codex_local"))).toEqual({
       enabled: true,
       maxSessionRuns: 0,
       maxRawInputTokens: 0,
       maxSessionAgeHours: 0,
     });
+  });
+
+  it("rotates claude local on run-count/age to stay inside the standard context window", () => {
+    // Claude Code escalates to the unaffordable 1M window instead of compacting on
+    // credit-less subscriptions, so Paperclip rotates as a safety net. Token-based
+    // thresholds are unreliable under prompt caching, so rotation is run-count/age based.
     expect(parseSessionCompactionPolicy(buildAgent("claude_local"))).toEqual({
+      enabled: true,
+      maxSessionRuns: 25,
+      maxRawInputTokens: 0,
+      maxSessionAgeHours: 48,
+    });
+  });
+
+  it("lets agents with 1M usage credits override the claude rotation defaults", () => {
+    expect(
+      parseSessionCompactionPolicy(
+        buildAgent("claude_local", {
+          heartbeat: { sessionCompaction: { maxSessionRuns: 0, maxSessionAgeHours: 0 } },
+        }),
+      ),
+    ).toEqual({
       enabled: true,
       maxSessionRuns: 0,
       maxRawInputTokens: 0,

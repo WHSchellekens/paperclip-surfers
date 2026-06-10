@@ -36,6 +36,28 @@ const ADAPTER_MANAGED_SESSION_POLICY: SessionCompactionPolicy = {
   maxSessionAgeHours: 0,
 };
 
+// Claude Code "natively" manages context, but on a subscription without usage
+// credits it does NOT compact a session that outgrows the 200K standard window —
+// it escalates to the 1M-token window, which the account cannot use, and every
+// resume then fails pre-flight with "Usage credits required for 1M context". To
+// keep Claude sessions inside the standard window we rotate to a fresh session
+// (carrying a short handoff summary) before the resumed transcript gets large.
+//
+// We rotate on run-count and age rather than token thresholds: with prompt
+// caching, the per-run usage we record (cachedInputTokens) is the *sum* of
+// per-turn cache reads, not the context-window occupancy, so a single healthy
+// run can report millions of cached tokens. Run-count and age are the reliable
+// proxies for transcript growth. (Calibration: a real agent's session
+// accumulated ~41 runs over ~8 days before hitting the 1M wall, so 25 leaves a
+// safe margin.) Accounts that have enabled 1M usage credits can raise or disable
+// these via runtimeConfig.heartbeat.sessionCompaction.
+const CLAUDE_STANDARD_CONTEXT_SESSION_POLICY: SessionCompactionPolicy = {
+  enabled: true,
+  maxSessionRuns: 25,
+  maxRawInputTokens: 0,
+  maxSessionAgeHours: 48,
+};
+
 export const LEGACY_SESSIONED_ADAPTER_TYPES = new Set([
   "claude_local",
   "codex_local",
@@ -48,8 +70,11 @@ export const LEGACY_SESSIONED_ADAPTER_TYPES = new Set([
 export const ADAPTER_SESSION_MANAGEMENT: Record<string, AdapterSessionManagement> = {
   claude_local: {
     supportsSessionResume: true,
-    nativeContextManagement: "confirmed",
-    defaultSessionCompaction: ADAPTER_MANAGED_SESSION_POLICY,
+    // Claude Code compacts within a session, but on credit-less subscriptions it
+    // escalates past the 200K window to the (unaffordable) 1M window instead of
+    // compacting, so Paperclip rotates as a safety net. See policy comment above.
+    nativeContextManagement: "likely",
+    defaultSessionCompaction: CLAUDE_STANDARD_CONTEXT_SESSION_POLICY,
   },
   codex_local: {
     supportsSessionResume: true,

@@ -57,19 +57,22 @@ export interface AgentExperiment {
   concludedAt: string | null;
 }
 
-export interface CompanyAnalytics {
+export interface AgentKpiSummary {
+  agentId: string;
+  agentName: string;
   totalRuns: number;
-  avgCompletionRate: number;
+  completionRate: number | null;
+  avgSelfAssessment: number | null;
+  avgCostCents: number | null;
   totalCostCents: number;
-  activeAgents: number;
-  agentSummaries: Array<{
-    agentId: string;
-    agentName: string;
-    totalRuns: number;
-    completionRate: number;
-    avgCostCents: number;
-    avgDurationSeconds: number;
-  }>;
+  avgDurationSeconds: number | null;
+  avgErrors: number | null;
+}
+
+export interface CompanyAnalytics {
+  companyId: string;
+  agentCount: number;
+  agents: AgentKpiSummary[];
 }
 
 export interface ExperimentCreateRequest {
