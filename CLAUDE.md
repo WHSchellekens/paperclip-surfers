@@ -11,7 +11,7 @@ Before making changes, read: `doc/GOAL.md` → `doc/PRODUCT.md` → `doc/SPEC-im
 ## Commands
 
 ```sh
-# Install & run dev (embedded PGlite, no DATABASE_URL needed)
+# Install & run dev (embedded Postgres, no DATABASE_URL needed)
 pnpm install
 pnpm dev                    # API + UI at http://localhost:3100 (watch mode)
 pnpm dev:once               # Same but no file watching
@@ -82,7 +82,7 @@ pnpm workspaces. Build order matters — dependencies must build before dependen
 3. `pnpm db:generate` (compiles schema first, then runs drizzle-kit)
 4. `pnpm -r typecheck` to validate
 
-Dev uses embedded PGlite (leave `DATABASE_URL` unset). Data persists at `~/.paperclip/instances/default/db/`. Reset by deleting that directory.
+Dev uses embedded Postgres (leave `DATABASE_URL` unset). Data persists at `~/.paperclip/instances/default/db/`. Reset by deleting that directory.
 
 ## Lockfile Policy
 

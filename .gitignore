@@ -34,11 +34,16 @@ tmp/
 
 # Editor / tool temp files
 *.tmp
+*.log
 .vscode/
 .claude/settings.local.json
+.mcp.json
 .paperclip-local/
 /.idea/
 /.agents/
+
+# Build artifacts
+ui-dist/
 
 # Doc maintenance cursor
 .doc-review-cursor
