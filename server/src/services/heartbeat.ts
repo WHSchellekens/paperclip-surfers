@@ -12,6 +12,7 @@ import {
   agentWakeupRequests,
   heartbeatRunEvents,
   heartbeatRuns,
+  issueComments,
   issues,
   projects,
   projectWorkspaces,
@@ -263,6 +264,43 @@ export function prioritizeProjectWorkspaceCandidatesForRun<T extends ProjectWork
 
 function readNonEmptyString(value: unknown): string | null {
   return typeof value === "string" && value.trim().length > 0 ? value : null;
+}
+
+/**
+ * Build an authoritative "Today is …" line for the agent's timezone so agents never compute the
+ * current weekday themselves. Timezone resolution: agent runtimeConfig.timezone → PAPERCLIP_DEFAULT_TZ
+ * → process TZ → UTC.
+ */
+function buildAuthoritativeDateLine(runtimeConfigRaw: unknown, apiUrl: string): string {
+  const rc = parseObject(runtimeConfigRaw);
+  const tz =
+    readNonEmptyString(rc.timezone) ??
+    readNonEmptyString(process.env.PAPERCLIP_DEFAULT_TZ) ??
+    readNonEmptyString(process.env.TZ) ??
+    "UTC";
+  const now = new Date();
+  let formatted: string;
+  let iso: string;
+  try {
+    formatted = new Intl.DateTimeFormat("en-GB", {
+      timeZone: tz,
+      weekday: "long",
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+    }).format(now);
+    // en-CA yields YYYY-MM-DD for the ISO date in the same timezone.
+    iso = new Intl.DateTimeFormat("en-CA", {
+      timeZone: tz,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(now);
+  } catch {
+    formatted = now.toUTCString();
+    iso = now.toISOString().slice(0, 10);
+  }
+  return `> **Today is ${formatted}** (${iso}, ${tz}). This is the authoritative current date — do not compute the day of week yourself. To get the correct weekday for ANY other date, call \`GET ${apiUrl}/api/utils/weekday?date=YYYY-MM-DD&tz=${tz}\` instead of guessing.`;
 }
 
 function normalizeLedgerBillingType(value: unknown): BillingType {
@@ -2531,32 +2569,64 @@ export function heartbeatService(db: Db) {
           "local agent jwt secret missing or invalid; running without injected PAPERCLIP_API_KEY",
         );
       }
-      // V2: Load agent memories and inject as system prompt appendix
+      // V2: Inject a BOUNDED, relevance-ranked memory appendix (always-on rules + top episodic
+      // memories within a token budget) plus an authoritative current-date line. This replaces
+      // the old "inject every memory" behavior that overflowed the context window.
       let memoryCleanup: (() => void) | null = null;
       try {
-        const { memoryLoaderService } = await import("./agent-runtime/memory-loader.js");
+        const { memoryLoaderService, renderInjection } = await import("./agent-runtime/memory-loader.js");
         const memoryLoader = memoryLoaderService(db);
-        const memories = await memoryLoader.loadMemories(agent.id, executionProjectId ?? undefined);
         const os = await import("node:os");
         const fsSync = await import("node:fs");
         const pathMod = await import("node:path");
         const tempDir = fsSync.mkdtempSync(pathMod.join(os.tmpdir(), "paperclip-memory-"));
 
-        const memorySection = memories.length > 0
-          ? `# Your Memories\n\nThese are your accumulated learnings. Use them to inform your work.\n\n${
-              memories.map((m) =>
-                `## ${m.title}\n**Category:** ${m.category} | **Source:** ${m.source} | **Scope:** ${m.scope}\n\n${m.content}`
-              ).join("\n\n---\n\n")
-            }\n\n`
-          : "";
+        // Build wake context for relevance ranking.
+        const wakeCommentId = readNonEmptyString(context.commentId) ?? readNonEmptyString(context.wakeCommentId);
+        let commentText: string | null = null;
+        if (wakeCommentId) {
+          try {
+            const [c] = await db
+              .select({ body: issueComments.body })
+              .from(issueComments)
+              .where(eq(issueComments.id, wakeCommentId))
+              .limit(1);
+            commentText = c?.body ?? null;
+          } catch { /* relevance signal is best-effort */ }
+        }
+        const wakeContext = {
+          issueTitle: issueContext?.title ?? null,
+          wakeReason: readNonEmptyString(context.wakeReason),
+          commentText,
+          taskKey: taskKey ?? null,
+        };
 
-        // Self-reflection instructions — always injected so agent can write memories
+        const runtimeMemoryConfig = parseObject(parseObject(agent.runtimeConfig).memory);
+        const injectionTokenBudget = asNumber(runtimeMemoryConfig.injectionTokenBudget, 1500);
+        const selection = await memoryLoader.selectMemoriesForInjection(agent.id, wakeContext, {
+          projectId: executionProjectId ?? null,
+          tokenBudget: injectionTokenBudget,
+        });
+
         const apiUrl = process.env.PAPERCLIP_API_URL ?? `http://localhost:${process.env.PORT ?? 3100}`;
+
+        // Fix 4a: authoritative current date + weekday so agents never compute the day-of-week
+        // themselves (a frequent source of wrong "Monday vs Tuesday" errors in emails).
+        const dateLine = buildAuthoritativeDateLine(agent.runtimeConfig, apiUrl);
+
+        // Self-reflection — consolidate-first, capped, to prevent unbounded memory growth.
         const reflectionInstructions = `# Self-Improvement Instructions
 
-At the end of your work on this task, write 1-3 memory entries about what you learned. Be specific and actionable.
+After finishing, record **at most 0-2** memories, and ONLY if you learned something durable that is not already stored. Most runs should record nothing.
 
-Call this API for each memory entry:
+Before creating a memory, FIRST check what you already know:
+\`\`\`
+GET ${apiUrl}/api/agents/me/memories
+Authorization: Bearer $PAPERCLIP_API_KEY
+\`\`\`
+If a similar memory already exists, do NOT create a duplicate. Either leave it, or PATCH it via \`/api/agents/{agentId}/memories/{id}\` to refine it.
+
+Only create a memory for genuinely NEW, durable knowledge (a recurring pattern, a stated preference, a decision and its rationale, a learning from a failure, or explicit feedback):
 \`\`\`
 POST ${apiUrl}/api/agents/me/memories
 Authorization: Bearer $PAPERCLIP_API_KEY
@@ -2566,31 +2636,27 @@ Content-Type: application/json
   "scope": "global" | "project",
   "projectId": "<project id if project-scoped, omit for global>",
   "category": "pattern" | "preference" | "decision" | "learning" | "feedback",
-  "title": "<short title>",
-  "content": "<what you learned, what worked, what to do differently next time>",
+  "title": "<short, specific title>",
+  "content": "<the durable learning — what to do differently next time>",
   "confidence": 0.0-1.0
 }
 \`\`\`
 
-Write memories for:
-- **Patterns** you noticed (recurring problems, solutions that work)
-- **Preferences** expressed by the team (how they like things done)
-- **Decisions** you made and why (so you don't re-litigate them)
-- **Learnings** from failures or surprises
-- **Feedback** you received (implicit or explicit)
-
-Keep memories concise and specific. Don't write vague platitudes.`;
+Do NOT record run status, task state, timelines, or anything already covered by your instructions or the rules above. A smaller, sharper memory bank is the goal.`;
 
         const experimentSection = typeof context.v2ExperimentInstruction === "string"
           ? `\n\n${context.v2ExperimentInstruction}`
           : "";
-        const memoryContent = memorySection + reflectionInstructions + experimentSection;
+        const memoryContent =
+          renderInjection({ rules: selection.rules, episodic: selection.episodic, dateLine }) +
+          reflectionInstructions +
+          experimentSection;
         const memoryPath = pathMod.join(tempDir, "agent-memory.md");
         fsSync.writeFileSync(memoryPath, memoryContent);
         context.paperclipMemoryFilePath = memoryPath;
         logger.info(
-          { agentId: agent.id, runId: run.id, memoryCount: memories.length },
-          "V2: injecting agent memories into run",
+          { agentId: agent.id, runId: run.id, usedEmbeddings: selection.usedEmbeddings, ...selection.debug },
+          "V2: injecting bounded agent memories into run",
         );
         memoryCleanup = () => {
           try { fsSync.rmSync(tempDir, { recursive: true, force: true }); } catch { /* ignore */ }

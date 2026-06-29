@@ -31,6 +31,7 @@ import { accessRoutes } from "./routes/access.js";
 import { pluginRoutes } from "./routes/plugins.js";
 import { pluginUiStaticRoutes } from "./routes/plugin-ui-static.js";
 import { agentMemoryRoutes } from "./routes/agent-memories.js";
+import { utilRoutes } from "./routes/utils.js";
 import { mcpServerRoutes } from "./routes/mcp-servers.js";
 import { agentKpiRoutes } from "./routes/agent-kpis.js";
 import { agentExperimentRoutes } from "./routes/agent-experiments.js";
@@ -161,6 +162,7 @@ export async function createApp(
   api.use(sidebarBadgeRoutes(db));
   api.use(instanceSettingsRoutes(db));
   api.use(agentMemoryRoutes(db));
+  api.use(utilRoutes());
   api.use(mcpServerRoutes(db));
   api.use(agentKpiRoutes(db));
   api.use(agentExperimentRoutes(db));

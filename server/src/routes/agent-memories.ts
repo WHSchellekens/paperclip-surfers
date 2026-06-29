@@ -34,6 +34,8 @@ export function agentMemoryRoutes(db: Db) {
       content,
       source: "self",
       confidence: confidence ?? 0.7,
+      // Agents may not self-promote rules; canonical rules are curated by the board/librarian.
+      tier: "episodic",
     });
 
     res.status(201).json(memory);
@@ -88,7 +90,7 @@ export function agentMemoryRoutes(db: Db) {
     }
     assertCompanyAccess(req, companyId);
 
-    const { scope, projectId, category, title, content, source, confidence } = req.body;
+    const { scope, projectId, category, title, content, source, confidence, tier } = req.body;
 
     if (!scope || !category || !title || !content || !source) {
       res.status(400).json({ error: "Missing required fields: scope, category, title, content, source" });
@@ -105,6 +107,8 @@ export function agentMemoryRoutes(db: Db) {
       content,
       source,
       confidence,
+      // Board/operator may create canonical rules (tier: "rule") or episodic memories.
+      tier: tier === "rule" ? "rule" : "episodic",
     });
 
     res.status(201).json(memory);
@@ -126,12 +130,13 @@ export function agentMemoryRoutes(db: Db) {
       return;
     }
 
-    const { title, content, category, confidence } = req.body;
+    const { title, content, category, confidence, tier } = req.body;
     const updated = await svc.updateMemory(memoryId, {
       ...(title !== undefined && { title }),
       ...(content !== undefined && { content }),
       ...(category !== undefined && { category }),
       ...(confidence !== undefined && { confidence }),
+      ...(tier === "rule" || tier === "episodic" ? { tier } : {}),
     });
 
     res.json(updated);
