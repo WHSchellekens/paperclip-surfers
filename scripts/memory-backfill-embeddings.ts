@@ -9,8 +9,7 @@
  * Doubles as a model warm-up (first run downloads/caches the local embedding model). If the
  * optional embedding dependency is unavailable, rows still get content hashes (embeddings null).
  */
-import { isNull, eq } from "drizzle-orm";
-import { agentMemories, agents, createDb } from "@paperclipai/db";
+import { agentMemories, agents, createDb, eq, isNull } from "@paperclipai/db";
 import { getEmbedder, EMBEDDING_MODEL_ID } from "../server/src/services/agent-runtime/embeddings.js";
 import { computeContentHash, memoryLoaderService } from "../server/src/services/agent-runtime/memory-loader.js";
 
