@@ -37,7 +37,10 @@ export type InjectionSelection = {
 const DEFAULT_INJECTION_TOKEN_BUDGET = 1500;
 // Rules are never dropped, but warn if the always-on tier alone is unexpectedly large.
 const RULE_TOKEN_WARN_CEILING = 1200;
-const NEAR_DUPLICATE_THRESHOLD = 0.92;
+// Intentionally high: only merge true twins (e.g. a repeated "clean scan" snapshot that differs
+// only by timestamp). Lower values wrongly merge distinct facts that share boilerplate phrasing
+// (e.g. two contacts' "outreach email sent" records), which would silently drop a real memory.
+const NEAR_DUPLICATE_THRESHOLD = 0.985;
 
 function normalizeForHash(value: string): string {
   return value.trim().replace(/\s+/g, " ").toLowerCase();

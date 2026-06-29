@@ -2642,7 +2642,9 @@ Content-Type: application/json
 }
 \`\`\`
 
-Do NOT record run status, task state, timelines, or anything already covered by your instructions or the rules above. A smaller, sharper memory bank is the goal.`;
+Do NOT record run status, task state, timelines, or anything already covered by your instructions or the rules above — those are NOT memories. Never write "Idle heartbeat …", "Pipeline state …", "clean scan", or similar run-state snapshots.
+
+Write each memory as a terse, self-contained fact (1-2 sentences). No timestamps, no "during this heartbeat" preamble, no status/scan framing — just the durable learning itself. A smaller, sharper memory bank is the goal.`;
 
         const experimentSection = typeof context.v2ExperimentInstruction === "string"
           ? `\n\n${context.v2ExperimentInstruction}`
