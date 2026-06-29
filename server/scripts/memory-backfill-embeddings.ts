@@ -2,16 +2,18 @@
  * Backfill embeddings + content hashes for existing agent_memories rows, and (optionally) seed
  * canonical "rule"-tier memories. Idempotent: only touches rows missing an embedding/hash.
  *
- * Usage:
- *   DATABASE_URL=postgres://... pnpm tsx scripts/memory-backfill-embeddings.ts
- *   DATABASE_URL=postgres://... pnpm tsx scripts/memory-backfill-embeddings.ts --seed-rules=<agentId>,<agentId>
+ * Run from the server workspace so node resolves @paperclipai/db, drizzle-orm and the optional
+ * embedding dep from server/node_modules:
+ *   cd server && DATABASE_URL=postgres://... \
+ *     node --import ./node_modules/tsx/dist/loader.mjs scripts/memory-backfill-embeddings.ts
+ *   (optionally) ... scripts/memory-backfill-embeddings.ts --seed-rules=<agentId>,<agentId>
  *
  * Doubles as a model warm-up (first run downloads/caches the local embedding model). If the
  * optional embedding dependency is unavailable, rows still get content hashes (embeddings null).
  */
 import { agentMemories, agents, createDb, eq, isNull } from "@paperclipai/db";
-import { getEmbedder, EMBEDDING_MODEL_ID } from "../server/src/services/agent-runtime/embeddings.js";
-import { computeContentHash, memoryLoaderService } from "../server/src/services/agent-runtime/memory-loader.js";
+import { getEmbedder, EMBEDDING_MODEL_ID } from "../src/services/agent-runtime/embeddings.js";
+import { computeContentHash, memoryLoaderService } from "../src/services/agent-runtime/memory-loader.js";
 
 const BATCH = 32;
 
